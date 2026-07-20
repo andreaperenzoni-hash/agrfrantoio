@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<!-- ════════════════════════════════════════════════════════════════════════
+     FRANTOIO GEST — v0.1
+     Port da Cantina Gest v0.1. Logica tracciabilità lotti INVARIATA.
+     Delta frantoio:
+       • DENSITA = 0.916  → KG = LITRI × 0.916 (mai stoccato, sempre derivato)
+       • MOVIMENTI: sempre e solo in LITRI
+       • GIACENZE : mostrate SEMPRE come "L  /  kg"
+       • Varietà → QUALITA olio (ITALICO, CASALIVA, DOP, BIO...)
+       • Analisi olio: acidità, perossidi, polifenoli, K232, K270, ΔK, alchil esteri
+     ════════════════════════════════════════════════════════════════════════ -->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Frantoio Gest v0.1</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  /* palette olio: verde oliva + oro */
+  --bg:#f2f1e6;--bg-card:#ffffff;--bg-el:#eceada;--bg-in:#f8f7ee;
+  --bd:#cfd0b4;--bd-soft:#e2e2d0;--bd-acc:#b4b894;
+  --text:#14180c;--mid:#545a44;--dim:#8a9074;
+  --olive:#5c7014;--olive-s:#7a9020;--olive-d:#eef2dc;
+  --amber:#a08008;--amber-s:#c8a018;--amber-d:#fdf4d8;
+  --green:#3a6818;--green-d:#eaf2e0;
+  --gold:#b09018;--gold-d:#fdf6dc;
+  --red:#821828;--red-d:#faeaec;
+  --blue:#1a3878;--blue-d:#e8eef8;
+  --yellow:#a07808;--yellow-d:#fef8e4;
+}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;font-size:13px;}
+input,select,textarea{background:var(--bg-in);border:1px solid var(--bd);border-radius:7px;padding:8px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:12px;outline:none;width:100%;}
+input:focus,select:focus,textarea:focus{border-color:var(--olive);box-shadow:0 0 0 3px var(--olive-d);}
+button{cursor:pointer;font-family:'Inter',sans-serif;border:none;transition:all .15s;}
+.btn{padding:8px 14px;border-radius:7px;font-size:12px;font-weight:600;background:var(--bg-el);border:1px solid var(--bd);color:var(--text);}
+.btn:hover{border-color:var(--bd-acc);}
+.btn-p{background:var(--olive);color:#fff;border-color:var(--olive);}
+.btn-p:hover{background:var(--olive-s);}
+.btn-d{background:var(--red-d);color:var(--red);border-color:var(--red);}
+.btn-sm{padding:5px 9px;font-size:11px;}
+
+/* HEADER */
+#header{background:var(--bg-card);border-bottom:1px solid var(--bd);padding:7px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:100;box-shadow:0 1px 8px rgba(20,24,12,.06);}
+.logo-sub{font-size:7px;color:var(--dim);letter-spacing:.18em;text-transform:uppercase;}
+.logo-title{font-family:"Playfair Display",serif;font-style:italic;font-size:17px;color:var(--olive-s);}
+#kpi{display:flex;gap:5px;flex-wrap:wrap;}
+.kpi-pill{text-align:center;padding:3px 10px;border-radius:6px;min-width:62px;border:1px solid var(--bd);background:var(--bg-el);}
+.kpi-val{font-family:"Playfair Display",serif;font-size:13px;line-height:1.15;}
+.kpi-sub{font-size:8px;color:var(--dim);line-height:1.15;}
+.kpi-lbl{font-size:6px;color:var(--dim);letter-spacing:.08em;margin-top:1px;text-transform:uppercase;}
+.hdr-right{display:flex;flex-direction:column;align-items:flex-end;gap:5px;}
+.hdr-btns{display:flex;gap:7px;align-items:center;}
+#pending-badge{display:none;padding:4px 10px;border-radius:6px;font-size:10px;background:var(--amber-d);border:1px solid var(--amber);color:var(--amber);}
+#offline-badge{display:none;padding:4px 10px;border-radius:6px;font-size:10px;background:var(--red-d);border:1px solid var(--red);color:var(--red);}
+#sync-status{font-size:9px;color:var(--dim);}
+
+/* TABS */
+#tabs{display:flex;gap:2px;padding:0 16px;background:var(--bg-card);border-bottom:1px solid var(--bd);overflow-x:auto;}
+.tab{padding:9px 14px;font-size:12px;font-weight:600;color:var(--dim);background:none;border-bottom:2px solid transparent;white-space:nowrap;}
+.tab.on{color:var(--olive);border-bottom-color:var(--olive);}
+
+#main{padding:14px 16px 90px;max-width:1500px;margin:0 auto;}
+.card{background:var(--bg-card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px;}
+.card-t{font-family:"Playfair Display",serif;font-size:15px;margin-bottom:10px;color:var(--text);}
+
+/* FILTRI */
+#filtri{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center;}
+#filtri input,#filtri select{width:auto;min-width:130px;}
+
+/* TABELLA VASCHE */
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{text-align:left;padding:7px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);border-bottom:1px solid var(--bd);white-space:nowrap;}
+td{padding:7px 8px;border-bottom:1px solid var(--bd-soft);vertical-align:middle;}
+tr.v-row{cursor:pointer;}
+tr.v-row:hover{background:var(--bg-in);}
+tr.v-row.sel{background:var(--olive-d);}
+.cod{font-weight:700;font-family:"Playfair Display",serif;font-size:14px;}
+.tipo-badge{font-size:8px;padding:2px 6px;border-radius:4px;background:var(--bg-el);border:1px solid var(--bd);color:var(--mid);letter-spacing:.04em;}
+.qty{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap;}
+.qty-kg{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums;}
+.bar{height:5px;border-radius:3px;background:var(--bg-el);overflow:hidden;min-width:60px;}
+.bar>i{display:block;height:100%;background:var(--olive-s);}
+.st{font-size:9px;padding:2px 7px;border-radius:4px;font-weight:600;}
+.st.vuota{background:#eee;color:#777;}
+.st.da_colmare{background:var(--yellow-d);color:var(--yellow);}
+.st.piena{background:var(--green-d);color:var(--green);}
+.lotto-badge{font-size:9px;padding:1px 5px;border-radius:3px;border:1px solid;font-weight:600;}
+.lotto-row{display:flex;align-items:center;gap:5px;margin:1px 0;}
+.lotto-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+
+/* PANNELLO */
+#panel{position:fixed;bottom:0;left:0;right:0;background:var(--bg-card);border-top:1px solid var(--bd);padding:10px 16px;display:none;align-items:center;gap:12px;flex-wrap:wrap;z-index:90;box-shadow:0 -2px 12px rgba(20,24,12,.08);}
+#panel.on{display:flex;}
+
+/* MODAL */
+.ov{position:fixed;inset:0;background:rgba(20,24,12,.45);display:none;align-items:center;justify-content:center;z-index:200;padding:14px;}
+.ov.on{display:flex;}
+.mod{background:var(--bg-card);border:1px solid var(--bd);border-radius:12px;padding:16px;max-width:820px;width:100%;max-height:92vh;overflow-y:auto;}
+.mod-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.mod-t{font-family:"Playfair Display",serif;font-size:17px;}
+.x{background:none;font-size:20px;color:var(--dim);padding:0 6px;}
+.fld{margin-bottom:10px;}
+.lbl{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin-bottom:4px;display:block;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+.op-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px;}
+.op-tab{padding:6px 11px;border-radius:6px;font-size:11px;font-weight:600;background:var(--bg-el);border:1px solid var(--bd);color:var(--mid);}
+.op-tab.on{background:var(--olive);color:#fff;border-color:var(--olive);}
+.prepost{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;}
+.pp-card{background:var(--bg-in);border:1px solid var(--bd-soft);border-radius:8px;padding:9px;}
+.pp-h{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin-bottom:6px;}
+.pp-row{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;}
+.warn{background:var(--red-d);border:1px solid var(--red);color:var(--red);padding:7px 10px;border-radius:7px;font-size:11px;margin-top:8px;}
+.ok{background:var(--green-d);border:1px solid var(--green);color:var(--green);padding:7px 10px;border-radius:7px;font-size:11px;margin-top:8px;}
+
+/* LOGIN */
+#login-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:500;}
+.login-box{background:var(--bg-card);border:1px solid var(--bd);border-radius:12px;padding:26px;width:340px;}
+.dim{color:var(--dim);font-size:11px;}
+.empty{text-align:center;padding:34px;color:var(--dim);font-size:12px;}
+@media(max-width:760px){.grid2,.grid3,.prepost{grid-template-columns:1fr;}#kpi{width:100%;}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="logo-sub">Agririva</div>
+    <div class="logo-title" style="margin-bottom:16px;">Frantoio Gest</div>
+    <div class="fld"><label class="lbl">Email</label><input id="li-email" type="email" autocomplete="username"></div>
+    <div class="fld"><label class="lbl">Password</label><input id="li-pass" type="password" autocomplete="current-password"></div>
+    <div id="li-err" style="display:none;" class="warn"></div>
+    <button class="btn btn-p" style="width:100%;margin-top:8px;" onclick="login()">Entra</button>
+  </div>
+</div>
+
+<!-- HEADER -->
+<div id="header">
+  <div>
+    <div class="logo-sub">Agririva</div>
+    <div class="logo-title">Frantoio Gest</div>
+  </div>
+  <div id="kpi"></div>
+  <div class="hdr-right">
+    <div class="hdr-btns">
+      <select id="sel-azienda" style="display:none;width:auto;" onchange="cambiaAzienda(this.value)"></select>
+      <span id="offline-badge">offline</span>
+      <span id="pending-badge">0 in coda</span>
+      <button class="btn btn-p btn-sm" onclick="openOp()">+ Operazione</button>
+      <button class="btn btn-sm" onclick="syncronizza()">Sync</button>
+      <button class="btn btn-sm" onclick="logout()">Esci</button>
+    </div>
+    <div id="sync-status">—</div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div id="tabs">
+  <button class="tab on" data-v="vasche"  onclick="setView('vasche')">Vasche</button>
+  <button class="tab"    data-v="pivot"   onclick="setView('pivot')">Giacenze</button>
+  <button class="tab"    data-v="lotti"   onclick="setView('lotti')">Lotti</button>
+  <button class="tab"    data-v="analisi" onclick="setView('analisi')">Analisi</button>
+  <button class="tab"    data-v="log"     onclick="setView('log')">Log</button>
+  <button class="tab"    data-v="imp"     onclick="setView('imp')">Impostazioni</button>
+</div>
+
+<div id="main"></div>
+
+<!-- PANNELLO SELEZIONE -->
+<div id="panel">
+  <div id="panel-info" style="flex:1;font-size:12px;"></div>
+  <button class="btn btn-p btn-sm" onclick="openOpVasca()">Operazione</button>
+  <button class="btn btn-sm" onclick="openRettifica()">Rettifica</button>
+  <button class="btn btn-sm" onclick="deselectVasca()">Chiudi</button>
+</div>
+
+<!-- MODAL OPERAZIONE -->
+<div class="ov" id="modal-op">
+  <div class="mod">
+    <div class="mod-h">
+      <div class="mod-t">Operazione</div>
+      <button class="x" onclick="closeModal('modal-op')">&times;</button>
+    </div>
+    <div class="op-tabs" id="op-tabs"></div>
+    <div id="op-form"></div>
+    <div class="prepost">
+      <div class="pp-card"><div class="pp-h">Prima</div><div id="pre-panel"></div></div>
+      <div class="pp-card"><div class="pp-h">Dopo</div><div id="post-panel"></div></div>
+    </div>
+    <div id="op-msg"></div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn btn-p" style="flex:1;" onclick="eseguiOp()">Conferma</button>
+      <button class="btn" onclick="closeModal('modal-op')">Annulla</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RETTIFICA -->
+<div class="ov" id="modal-rett">
+  <div class="mod" style="max-width:520px;">
+    <div class="mod-h">
+      <div class="mod-t">Rettifica inventario</div>
+      <button class="x" onclick="closeModal('modal-rett')">&times;</button>
+    </div>
+    <div id="rett-body"></div>
+  </div>
+</div>
+
+<!-- MODAL NUOVA VASCA -->
+<div class="ov" id="modal-vasca">
+  <div class="mod" style="max-width:520px;">
+    <div class="mod-h"><div class="mod-t">Nuova vasca</div><button class="x" onclick="closeModal('modal-vasca')">&times;</button></div>
+    <div class="grid2">
+      <div class="fld"><label class="lbl">Codice</label><input id="nv-cod"></div>
+      <div class="fld"><label class="lbl">Numero</label><input id="nv-num" type="number"></div>
+    </div>
+    <div class="grid2">
+      <div class="fld"><label class="lbl">Tipo</label>
+        <select id="nv-tipo">
+          <option>BATTENTE</option><option>NO BATTENTE</option><option>SEMPREPIENO</option>
+          <option>INOX</option><option>BIDONE</option><option>CUBO</option><option>PRIVATI</option>
+        </select></div>
+      <div class="fld"><label class="lbl">Capacità (litri)</label><input id="nv-cap" type="number" step="0.01"></div>
+    </div>
+    <div class="dim" id="nv-kg" style="margin-bottom:10px;">—</div>
+    <button class="btn btn-p" style="width:100%;" onclick="creaVasca()">Crea</button>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════════════════════════════════
+const SUPABASE_URL      = "https://fysrnwybfhtmjvthljuz.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_cmAU_YnoWla9KVhDLjWRww_qM9lIxHs";   // Settings → API → anon public
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ─── DENSITÀ OLIO ──────────────────────────────────────────────────────────
+// Unica costante di conversione. Sovrascritta da frantoio_aziende.densita.
+let DENSITA = 0.916;
+const L2KG = l => (l||0) * DENSITA;
+const KG2L = k => (k||0) / DENSITA;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  STATO
+// ═══════════════════════════════════════════════════════════════════════════
+let UTENTE=null, AZIENDA_ID=null, RUOLO=null, AZIENDE=[];
+let VASCHE=[], QUALITA=[], LOTTI=[], logOp=[], logGS=null;
+let view="vasche", selectedId=null, opTipo="carico", opVascaPresel=null;
+let pending=[];
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  FORMATTER — il cuore del delta frantoio
+//  Ogni giacenza si legge SEMPRE come L + kg. I movimenti restano in litri.
+// ═══════════════════════════════════════════════════════════════════════════
+function fmtL(n){return (n||0).toLocaleString("it-IT",{maximumFractionDigits:0});}
+function fmtKg(n){return (n||0).toLocaleString("it-IT",{maximumFractionDigits:0});}
+function fmtD(n){return (n||0).toLocaleString("it-IT",{maximumFractionDigits:1});}
+
+/** Giacenza su due righe: litri grande, kg piccolo sotto. */
+function giacenzaHTML(litri){
+  return `<div class="qty">${fmtL(litri)} L</div>
+          <div class="qty-kg">${fmtKg(L2KG(litri))} kg</div>`;
+}
+/** Giacenza inline: "1.000 L / 916 kg" */
+function giacenzaInline(litri){
+  return `${fmtL(litri)} L / ${fmtKg(L2KG(litri))} kg`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  AUTH
+// ═══════════════════════════════════════════════════════════════════════════
+async function login(){
+  const email=document.getElementById("li-email").value.trim();
+  const pass =document.getElementById("li-pass").value;
+  const err  =document.getElementById("li-err");
+  err.style.display="none";
+  const {error}=await sb.auth.signInWithPassword({email,password:pass});
+  if(error){err.textContent=error.message;err.style.display="block";return;}
+  await bootstrapUtente();
+}
+async function logout(){await sb.auth.signOut();location.reload();}
+
+async function bootstrapUtente(){
+  const {data:{user}}=await sb.auth.getUser();
+  if(!user){showLogin();return;}
+  UTENTE=user;
+
+  // il record esiste già (seed) ma auth_uid può essere NULL al primo login
+  let {data:u}=await sb.from("frantoio_utenti").select("*").eq("email",user.email).maybeSingle();
+  if(!u){showLogin();alert("Utente non censito in frantoio_utenti.");return;}
+  if(!u.auth_uid){
+    await sb.from("frantoio_utenti").update({auth_uid:user.id}).eq("id",u.id);
+    u.auth_uid=user.id;
+  }
+  RUOLO=u.ruolo; AZIENDA_ID=u.azienda_id;
+
+  const {data:az}=await sb.from("frantoio_aziende").select("*").order("nome");
+  AZIENDE=az||[];
+  if(RUOLO==="super_admin" && AZIENDE.length>1){
+    const s=document.getElementById("sel-azienda");
+    s.innerHTML=AZIENDE.map(a=>`<option value="${a.id}">${a.nome}</option>`).join("");
+    s.value=AZIENDA_ID; s.style.display="block";
+  }
+  applicaDensita();
+  hideLogin();
+  caricaLocale();
+  await fetchAnagrafiche();
+  await fetchLog();
+  renderAll();
+}
+function applicaDensita(){
+  const a=AZIENDE.find(x=>x.id==AZIENDA_ID);
+  if(a && a.densita) DENSITA=parseFloat(a.densita);
+}
+function cambiaAzienda(id){AZIENDA_ID=parseInt(id);applicaDensita();caricaLocale();fetchAnagrafiche().then(fetchLog).then(renderAll);}
+function showLogin(){document.getElementById("login-overlay").style.display="flex";}
+function hideLogin(){document.getElementById("login-overlay").style.display="none";}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MAPPING DB ↔ CLIENT
+// ═══════════════════════════════════════════════════════════════════════════
+function qualUuid(cod){return QUALITA.find(x=>x.id===cod)?.uuid||null;}
+function qualCodice(uuid){return QUALITA.find(x=>x.uuid===uuid)?.id||null;}
+
+function rowToVasca(r){
+  return {id:r.id,numero:r.numero,codice:r.codice,tipo:r.materiale||"",
+          capacita:parseFloat(r.capacita_litri)||0,
+          litri:parseFloat(r.litri)||0,
+          qualita:qualCodice(r.qualita_id),
+          campagna:r.campagna,note:r.note_qualita||"",
+          lotti:r.lotti||{}};
+}
+function vascaToRow(v){
+  return {id:v.id,azienda_id:AZIENDA_ID,numero:v.numero,codice:v.codice,
+          materiale:v.tipo,capacita_litri:v.capacita,litri:v.litri,
+          qualita_id:qualUuid(v.qualita),campagna:v.campagna,
+          note_qualita:v.note,lotti:v.lotti};
+}
+function rowToQualita(r){return {uuid:r.id,id:r.codice,nome:r.nome,sigla:r.sigla,bio:r.bio,dop:r.dop,hex:r.hex};}
+
+function logEntryToRow(e){
+  return {azienda_id:AZIENDA_ID,ts:e.ts,tipo:e.tipo,label:e.label,
+          sorgente_codice:e.sor,destinazione_codice:e.dst,
+          litri:e.litri,                       // ← MOVIMENTI SEMPRE IN LITRI
+          qualita_id:qualUuid(e.qualita),sigla_qualita:e.sigla,
+          qualita_nome:e.qualNome,campagna:e.campagna,lotto:e.lotto,
+          note:e.note,lotti_sorgente:e.lottiSor,
+          lotti_sorgente_dett:lottiDettaglioStr(e.lottiSor),
+          dispositivo:navigator.userAgent.slice(0,60),utente_email:UTENTE?.email};
+}
+function rowToLogEntry(r){
+  return {id:r.id,ts:r.ts,tipo:r.tipo,label:r.label,sor:r.sorgente_codice,
+          dst:r.destinazione_codice,litri:parseFloat(r.litri)||0,
+          qualita:qualCodice(r.qualita_id),sigla:r.sigla_qualita,
+          qualNome:r.qualita_nome,campagna:r.campagna,lotto:r.lotto,
+          note:r.note,lottiSor:r.lotti_sorgente};
+}
+function lottiDettaglioStr(lotti){
+  if(!lotti)return"";
+  return Object.entries(lotti).filter(([,l])=>l>0.5)
+    .map(([c,l])=>`${c}:${l.toFixed(0)}L`).join(" | ");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TRACCIABILITÀ LOTTI — logica INVARIATA da Cantina (proporzionale, in litri)
+// ═══════════════════════════════════════════════════════════════════════════
+function trasferisciLotti(src,dst,qty){
+  if(!src.lotti||!src.litri)return;
+  const tot=src.litri;
+  Object.entries(src.lotti).forEach(([cod,lit])=>{
+    const q=lit/tot*qty; if(q<0.01)return;
+    dst.lotti=dst.lotti||{}; dst.lotti[cod]=(dst.lotti[cod]||0)+q;
+  });
+}
+function riduciLotti(vasca,qty){
+  if(!vasca.lotti||!vasca.litri)return;
+  const f=1-qty/vasca.litri;
+  Object.keys(vasca.lotti).forEach(c=>{vasca.lotti[c]*=f;if(vasca.lotti[c]<0.01)delete vasca.lotti[c];});
+}
+function svuotaLotti(v){v.lotti={};}
+
+const LP=["#5c7014","#a08008","#1a3878","#821828","#3a6818","#7a5020","#405878","#8a4018"];
+function lottoColor(c){if(!c)return"#5a5040";let h=0;for(let i=0;i<c.length;i++)h=(h*31+c.charCodeAt(i))&0xffff;return LP[h%LP.length];}
+
+/** Lista lotti — mostra L e kg */
+function lottiListHTML(lotti,tot){
+  if(!lotti||!tot)return"";
+  return Object.entries(lotti).filter(([,l])=>l>0.5).sort((a,b)=>b[1]-a[1]).map(([c,l])=>{
+    const col=lottoColor(c),pct=Math.round(l/tot*100);
+    return`<div class="lotto-row">
+      <div class="lotto-dot" style="background:${col};"></div>
+      <span class="lotto-badge" style="color:${col};border-color:${col}44;background:${col}18;">${c}</span>
+      <span style="font-size:10px;color:var(--mid);">${fmtL(l)} L</span>
+      <span style="font-size:9px;color:var(--dim);">${fmtKg(L2KG(l))} kg</span>
+      <span style="font-size:9px;color:var(--dim);">${pct}%</span>
+    </div>`;
+  }).join("");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  STATO VASCA
+// ═══════════════════════════════════════════════════════════════════════════
+function statoVasca(v){
+  if(v.litri<=0)return"vuota";
+  if(v.capacita>0 && v.litri/v.capacita>=0.98)return"piena";
+  return"da_colmare";
+}
+const STATI={vuota:{l:"Vuota"},da_colmare:{l:"Da colmare"},piena:{l:"Piena"}};
+function getQualita(id){return QUALITA.find(q=>q.id===id)||null;}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PERSISTENZA LOCALE + CODA OFFLINE
+// ═══════════════════════════════════════════════════════════════════════════
+function _lsk(k){return "fg_"+(AZIENDA_ID||"x")+"_"+k;}
+function salvaLocale(){
+  try{
+    localStorage.setItem(_lsk("vasche"),JSON.stringify(VASCHE));
+    localStorage.setItem(_lsk("log"),JSON.stringify(logOp));
+    localStorage.setItem(_lsk("pending"),JSON.stringify(pending));
+  }catch(e){}
+}
+function caricaLocale(){
+  try{
+    VASCHE =JSON.parse(localStorage.getItem(_lsk("vasche"))||"[]");
+    logOp  =JSON.parse(localStorage.getItem(_lsk("log"))||"[]");
+    pending=JSON.parse(localStorage.getItem(_lsk("pending"))||"[]");
+  }catch(e){VASCHE=[];logOp=[];pending=[];}
+  updatePendingBadge();
+}
+function updatePendingBadge(){
+  const b=document.getElementById("pending-badge");
+  b.style.display=pending.length?"inline-flex":"none";
+  b.textContent=pending.length+" in coda";
+}
+function updateOnline(){document.getElementById("offline-badge").style.display=navigator.onLine?"none":"inline-flex";}
+function setStatus(m){document.getElementById("sync-status").textContent=m;}
+
+async function pushStato(logRows){
+  const rows=VASCHE.map(vascaToRow);
+  const {error:e1}=await sb.from("frantoio_vasche").upsert(rows,{onConflict:"id"});
+  if(e1)throw e1;
+  if(logRows&&logRows.length){
+    const {error:e2}=await sb.from("frantoio_log").insert(logRows);
+    if(e2)throw e2;
+  }
+}
+async function autoSave(logEntry){
+  salvaLocale();
+  const row=logEntry?logEntryToRow(logEntry):null;
+  if(!navigator.onLine){
+    if(row)pending.push(row);
+    salvaLocale();updatePendingBadge();setStatus("offline — in coda");
+    return;
+  }
+  try{
+    setStatus("salvo…");
+    await pushStato(row?[row]:[]);
+    setStatus("salvato "+new Date().toLocaleTimeString("it-IT"));
+  }catch(e){
+    if(row)pending.push(row);
+    salvaLocale();updatePendingBadge();
+    setStatus("errore — in coda");
+  }
+}
+async function syncronizza(){
+  if(!navigator.onLine){setStatus("offline");return;}
+  try{
+    setStatus("sync…");
+    await pushStato(pending);
+    pending=[];salvaLocale();updatePendingBadge();
+    await fetchAnagrafiche();
+    await fetchLog();
+    renderAll();
+    setStatus("sync ok "+new Date().toLocaleTimeString("it-IT"));
+  }catch(e){setStatus("errore sync: "+e.message);}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  FETCH
+// ═══════════════════════════════════════════════════════════════════════════
+async function fetchAnagrafiche(){
+  const {data:q}=await sb.from("frantoio_qualita").select("*")
+    .eq("azienda_id",AZIENDA_ID).eq("attiva",true).order("nome");
+  QUALITA=(q||[]).map(rowToQualita);
+
+  const {data:v}=await sb.from("frantoio_vasche").select("*")
+    .eq("azienda_id",AZIENDA_ID).eq("attiva",true).order("numero");
+  VASCHE=(v||[]).map(rowToVasca);
+
+  const {data:l}=await sb.from("frantoio_lotti").select("*")
+    .eq("azienda_id",AZIENDA_ID).order("data_creazione",{ascending:false});
+  LOTTI=l||[];
+  salvaLocale();
+}
+async function fetchLog(){
+  const {data}=await sb.from("frantoio_log").select("*")
+    .eq("azienda_id",AZIENDA_ID).order("ts",{ascending:false}).limit(500);
+  logGS=(data||[]).map(rowToLogEntry);
+}
+function getLogSorgente(){return logGS||logOp;}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  KPI — totali sempre in L e kg
+// ═══════════════════════════════════════════════════════════════════════════
+function renderKPI(){
+  const totL=VASCHE.reduce((s,v)=>s+v.litri,0);
+  const capL=VASCHE.reduce((s,v)=>s+v.capacita,0);
+  const piene=VASCHE.filter(v=>statoVasca(v)==="piena").length;
+  const vuote=VASCHE.filter(v=>statoVasca(v)==="vuota").length;
+  const occ=capL?Math.round(totL/capL*100):0;
+  document.getElementById("kpi").innerHTML=`
+    <div class="kpi-pill">
+      <div class="kpi-val">${fmtL(totL)} L</div>
+      <div class="kpi-sub">${fmtKg(L2KG(totL))} kg</div>
+      <div class="kpi-lbl">Giacenza</div>
+    </div>
+    <div class="kpi-pill">
+      <div class="kpi-val">${fmtL(capL)} L</div>
+      <div class="kpi-sub">${fmtKg(L2KG(capL))} kg</div>
+      <div class="kpi-lbl">Capacità</div>
+    </div>
+    <div class="kpi-pill"><div class="kpi-val">${occ}%</div><div class="kpi-lbl">Occupaz.</div></div>
+    <div class="kpi-pill"><div class="kpi-val">${piene}</div><div class="kpi-lbl">Piene</div></div>
+    <div class="kpi-pill"><div class="kpi-val">${vuote}</div><div class="kpi-lbl">Vuote</div></div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  VIEWS
+// ═══════════════════════════════════════════════════════════════════════════
+function setView(v){
+  view=v;
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t.dataset.v===v));
+  renderView();
+}
+function renderAll(){renderKPI();renderView();}
+function renderView(){
+  const m=document.getElementById("main");
+  if(view==="vasche")  m.innerHTML=renderVasche();
+  if(view==="pivot")   m.innerHTML=renderPivot();
+  if(view==="lotti")   m.innerHTML=renderLotti();
+  if(view==="analisi") m.innerHTML=renderAnalisi();
+  if(view==="log")     m.innerHTML=renderLog();
+  if(view==="imp")     m.innerHTML=renderImpostazioni();
+}
+
+// ─── VASCHE ────────────────────────────────────────────────────────────────
+function renderVasche(){
+  if(!VASCHE.length)return`<div class="empty">Nessuna vasca. Esegui il seed SQL.</div>`;
+  const rows=VASCHE.map(v=>{
+    const st=statoVasca(v), q=getQualita(v.qualita);
+    const pct=v.capacita?Math.min(100,v.litri/v.capacita*100):0;
+    return`<tr class="v-row ${selectedId===v.id?'sel':''}" onclick="selectVasca('${v.id}')">
+      <td><span class="cod">${v.codice}</span></td>
+      <td><span class="tipo-badge">${v.tipo}</span></td>
+      <td>${q?`<span style="color:${q.hex};font-weight:600;">${q.nome}</span>`:'<span class="dim">—</span>'}</td>
+      <td>${v.campagna||'<span class="dim">—</span>'}</td>
+      <td>${giacenzaHTML(v.litri)}</td>
+      <td>${giacenzaHTML(v.capacita)}</td>
+      <td><div class="bar"><i style="width:${pct}%;"></i></div><div class="dim" style="font-size:9px;">${Math.round(pct)}%</div></td>
+      <td><span class="st ${st}">${STATI[st].l}</span></td>
+      <td>${lottiListHTML(v.lotti,v.litri)||'<span class="dim">—</span>'}</td>
+    </tr>`;
+  }).join("");
+  return`<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div class="card-t">Vasche (${VASCHE.length})</div>
+      <button class="btn btn-sm" onclick="openModal('modal-vasca')">+ Vasca</button>
+    </div>
+    <div style="overflow-x:auto;"><table>
+      <tr><th>Cod</th><th>Tipo</th><th>Qualità</th><th>Camp.</th>
+          <th>Giacenza</th><th>Capacità</th><th>Riemp.</th><th>Stato</th><th>Lotti</th></tr>
+      ${rows}
+    </table></div>
+  </div>`;
+}
+
+// ─── GIACENZE (pivot per qualità) ──────────────────────────────────────────
+function renderPivot(){
+  const agg={};
+  VASCHE.filter(v=>v.litri>0).forEach(v=>{
+    const k=v.qualita||"__nd";
+    agg[k]=agg[k]||{litri:0,vasche:0};
+    agg[k].litri+=v.litri; agg[k].vasche++;
+  });
+  const keys=Object.keys(agg).sort((a,b)=>agg[b].litri-agg[a].litri);
+  if(!keys.length)return`<div class="empty">Nessuna giacenza.</div>`;
+  const totL=keys.reduce((s,k)=>s+agg[k].litri,0);
+  const rows=keys.map(k=>{
+    const q=getQualita(k), n=q?q.nome:"Non definita";
+    const l=agg[k].litri, pct=Math.round(l/totL*100);
+    return`<tr>
+      <td><span style="font-weight:600;color:${q?q.hex:'var(--dim)'};">${n}</span></td>
+      <td>${agg[k].vasche}</td>
+      <td class="qty">${fmtL(l)} L</td>
+      <td class="qty">${fmtKg(L2KG(l))} kg</td>
+      <td><div class="bar"><i style="width:${pct}%;"></i></div></td>
+      <td class="dim">${pct}%</td>
+    </tr>`;
+  }).join("");
+  return`<div class="card">
+    <div class="card-t">Giacenze per qualità</div>
+    <table>
+      <tr><th>Qualità</th><th>Vasche</th><th>Litri</th><th>Kg</th><th></th><th>%</th></tr>
+      ${rows}
+      <tr style="border-top:2px solid var(--bd);font-weight:700;">
+        <td>TOTALE</td><td>${VASCHE.filter(v=>v.litri>0).length}</td>
+        <td class="qty">${fmtL(totL)} L</td>
+        <td class="qty">${fmtKg(L2KG(totL))} kg</td>
+        <td></td><td>100%</td>
+      </tr>
+    </table>
+    <div class="dim" style="margin-top:8px;">Conversione kg = litri × ${DENSITA} (densità olio).</div>
+  </div>`;
+}
+
+// ─── LOTTI ─────────────────────────────────────────────────────────────────
+function renderLotti(){
+  const pres={};
+  VASCHE.forEach(v=>Object.entries(v.lotti||{}).forEach(([c,l])=>{
+    if(l<0.5)return;
+    pres[c]=pres[c]||{litri:0,vasche:[]};
+    pres[c].litri+=l; pres[c].vasche.push(v.codice);
+  }));
+  const keys=Object.keys(pres).sort();
+  if(!keys.length)return`<div class="empty">Nessun lotto in giacenza.</div>`;
+  const rows=keys.map(c=>{
+    const col=lottoColor(c), p=pres[c];
+    return`<tr>
+      <td><span class="lotto-badge" style="color:${col};border-color:${col}44;background:${col}18;">${c}</span></td>
+      <td class="qty">${fmtL(p.litri)} L</td>
+      <td class="qty">${fmtKg(L2KG(p.litri))} kg</td>
+      <td class="dim">${p.vasche.join(", ")}</td>
+    </tr>`;
+  }).join("");
+  return`<div class="card">
+    <div class="card-t">Lotti in giacenza (${keys.length})</div>
+    <table><tr><th>Lotto</th><th>Litri</th><th>Kg</th><th>Vasche</th></tr>${rows}</table>
+  </div>`;
+}
+
+// ─── ANALISI (parametri olio) ──────────────────────────────────────────────
+const PARAM_OLIO=[
+  {k:"acidita",     n:"Acidità libera",  u:"%",         lim:"≤ 0,80 (EVO)"},
+  {k:"perossidi",   n:"N. perossidi",    u:"meq O₂/kg", lim:"≤ 20"},
+  {k:"polifenoli",  n:"Polifenoli tot.", u:"mg/kg",     lim:"—"},
+  {k:"acido_oleico",n:"Acido oleico",    u:"%",         lim:"—"},
+  {k:"k232",        n:"K232",            u:"",          lim:"≤ 2,50"},
+  {k:"k270",        n:"K270",            u:"",          lim:"≤ 0,22"},
+  {k:"delta_k",     n:"Delta K",         u:"",          lim:"≤ 0,01"},
+  {k:"alchil_esteri",n:"Alchil esteri",  u:"mg/kg",     lim:"≤ 35"},
+  {k:"organolettica",n:"Organolettica",  u:"",          lim:"—"}
+];
+function renderAnalisi(){
+  const rows=PARAM_OLIO.map(p=>`<tr>
+    <td style="font-weight:600;">${p.n}</td>
+    <td class="dim">${p.u}</td>
+    <td class="dim">${p.lim}</td>
+  </tr>`).join("");
+  return`<div class="card">
+    <div class="card-t">Analisi olio</div>
+    <div class="dim" style="margin-bottom:10px;">
+      Tabelle pronte (<code>frantoio_analisi</code>). UI di inserimento in v0.2 —
+      per ora inserimento da Supabase Studio.
+    </div>
+    <table><tr><th>Parametro</th><th>Unità</th><th>Limite di legge</th></tr>${rows}</table>
+    <div class="dim" style="margin-top:8px;">
+      Nota: perossidi, polifenoli e alchil esteri sono espressi <b>per kg</b>,
+      non per litro. La conversione usa la stessa densità ${DENSITA}.
+    </div>
+  </div>`;
+}
+
+// ─── LOG ───────────────────────────────────────────────────────────────────
+function renderLog(){
+  const log=getLogSorgente();
+  if(!log.length)return`<div class="empty">Log vuoto.</div>`;
+  const rows=log.slice(0,200).map(e=>{
+    const d=new Date(e.ts);
+    return`<tr>
+      <td class="dim" style="white-space:nowrap;">${d.toLocaleDateString("it-IT")} ${d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}</td>
+      <td><span class="tipo-badge">${e.tipo}</span></td>
+      <td>${e.sor||"—"}</td>
+      <td>${e.dst||"—"}</td>
+      <td class="qty">${e.litri?fmtL(e.litri)+" L":"—"}</td>
+      <td class="qty-kg">${e.litri?fmtKg(L2KG(e.litri))+" kg":""}</td>
+      <td>${e.lotto||"—"}</td>
+      <td class="dim">${e.note||""}</td>
+    </tr>`;
+  }).join("");
+  return`<div class="card">
+    <div class="card-t">Log operazioni</div>
+    <div class="dim" style="margin-bottom:8px;">I movimenti sono registrati in <b>litri</b>. I kg sono calcolati per lettura.</div>
+    <div style="overflow-x:auto;"><table>
+      <tr><th>Data</th><th>Tipo</th><th>Da</th><th>A</th><th>Litri</th><th>Kg</th><th>Lotto</th><th>Note</th></tr>
+      ${rows}
+    </table></div>
+  </div>`;
+}
+
+// ─── IMPOSTAZIONI ──────────────────────────────────────────────────────────
+function renderImpostazioni(){
+  return`<div class="card">
+    <div class="card-t">Impostazioni</div>
+    <div class="grid2">
+      <div class="fld">
+        <label class="lbl">Densità olio (kg/L)</label>
+        <input id="imp-dens" type="number" step="0.001" value="${DENSITA}">
+        <div class="dim" style="margin-top:4px;">Default 0,916. Cambiala solo se hai una densità certificata diversa.</div>
+      </div>
+      <div class="fld">
+        <label class="lbl">Azienda</label>
+        <input value="${(AZIENDE.find(a=>a.id==AZIENDA_ID)||{}).nome||''}" disabled>
+      </div>
+    </div>
+    <button class="btn btn-p btn-sm" onclick="salvaDensita()">Salva densità</button>
+    <hr style="margin:14px 0;border:none;border-top:1px solid var(--bd-soft);">
+    <div class="card-t" style="font-size:13px;">Qualità (${QUALITA.length})</div>
+    <table><tr><th>Codice</th><th>Nome</th><th>Sigla</th><th>BIO</th><th>DOP</th></tr>
+      ${QUALITA.map(q=>`<tr>
+        <td>${q.id}</td>
+        <td style="color:${q.hex};font-weight:600;">${q.nome}</td>
+        <td>${q.sigla}</td>
+        <td>${q.bio?"✓":"—"}</td>
+        <td>${q.dop?"✓":"—"}</td>
+      </tr>`).join("")}
+    </table>
+    <div class="dim" style="margin-top:10px;">Utente: ${UTENTE?.email||"—"} — ruolo ${RUOLO||"—"}</div>
+  </div>`;
+}
+async function salvaDensita(){
+  const d=parseFloat(document.getElementById("imp-dens").value);
+  if(!d||d<=0){alert("Densità non valida");return;}
+  const {error}=await sb.from("frantoio_aziende").update({densita:d}).eq("id",AZIENDA_ID);
+  if(error){alert(error.message);return;}
+  DENSITA=d;
+  const a=AZIENDE.find(x=>x.id==AZIENDA_ID); if(a)a.densita=d;
+  renderAll();
+  setStatus("densità aggiornata");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  SELEZIONE VASCA
+// ═══════════════════════════════════════════════════════════════════════════
+function selectVasca(id){selectedId=selectedId===id?null:id;aggiornaPannello();renderView();}
+function deselectVasca(){selectedId=null;aggiornaPannello();renderView();}
+function aggiornaPannello(){
+  const p=document.getElementById("panel");
+  if(!selectedId){p.classList.remove("on");return;}
+  const v=VASCHE.find(x=>x.id===selectedId);
+  if(!v){p.classList.remove("on");return;}
+  const q=getQualita(v.qualita);
+  document.getElementById("panel-info").innerHTML=
+    `<b class="cod">${v.codice}</b> <span class="tipo-badge">${v.tipo}</span>
+     &nbsp; <b>${giacenzaInline(v.litri)}</b>
+     <span class="dim"> / cap. ${giacenzaInline(v.capacita)}</span>
+     ${q?` &nbsp; <span style="color:${q.hex};font-weight:600;">${q.nome}</span>`:""}`;
+  p.classList.add("on");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  OPERAZIONI — input SEMPRE in litri
+// ═══════════════════════════════════════════════════════════════════════════
+const OPS=[
+  {k:"carico",          l:"Carico"},
+  {k:"travaso",         l:"Travaso"},
+  {k:"colmatura",       l:"Colmatura"},
+  {k:"filtrazione",     l:"Filtrazione"},
+  {k:"imbottigliamento",l:"Imbottigliamento"},
+  {k:"perdita",         l:"Perdita"},
+  {k:"vendita",         l:"Vendita"},
+  {k:"riclassifica",    l:"Riclassifica"}
+];
+function openOpVasca(){opVascaPresel=selectedId;openOp();}
+function openOp(){opTipo="carico";renderOpForm();openModal("modal-op");}
+function setOpTipo(t){opTipo=t;renderOpForm();}
+
+function renderOpForm(){
+  document.getElementById("op-tabs").innerHTML=OPS.map(o=>
+    `<button class="op-tab ${opTipo===o.k?'on':''}" onclick="setOpTipo('${o.k}')">${o.l}</button>`).join("");
+
+  const vOpts=v=>VASCHE.map(x=>`<option value="${x.id}" ${x.id===opVascaPresel?'selected':''}>${x.codice} — ${fmtL(x.litri)}/${fmtL(x.capacita)} L</option>`).join("");
+  const qOpts=QUALITA.map(q=>`<option value="${q.id}">${q.nome}</option>`).join("");
+  const needSor=["travaso","colmatura","filtrazione","imbottigliamento","perdita","vendita","riclassifica"].includes(opTipo);
+  const needDst=["carico","travaso","colmatura","filtrazione"].includes(opTipo);
+
+  let h=`<div class="grid2">`;
+  if(needSor)h+=`<div class="fld"><label class="lbl">Vasca sorgente</label>
+    <select id="op-sor" onchange="aggiornaPrePost()"><option value="">—</option>${vOpts()}</select></div>`;
+  if(needDst)h+=`<div class="fld"><label class="lbl">Vasca destinazione</label>
+    <select id="op-dst" onchange="aggiornaPrePost()"><option value="">—</option>${vOpts()}</select></div>`;
+  h+=`</div>`;
+
+  h+=`<div class="grid2">
+    <div class="fld">
+      <label class="lbl">Quantità (LITRI)</label>
+      <input id="op-litri" type="number" step="0.01" min="0" oninput="aggiornaPrePost()" placeholder="0">
+      <div class="dim" id="op-kg-hint" style="margin-top:4px;">—</div>
+    </div>`;
+
+  if(opTipo==="carico"||opTipo==="riclassifica"){
+    h+=`<div class="fld"><label class="lbl">Qualità</label>
+      <select id="op-qual" onchange="aggiornaPrePost()"><option value="">—</option>${qOpts}</select></div>`;
+  }else{h+=`<div></div>`;}
+  h+=`</div>`;
+
+  if(opTipo==="carico"){
+    h+=`<div class="grid2">
+      <div class="fld"><label class="lbl">Lotto</label><input id="op-lotto" placeholder="es. L2026-001"></div>
+      <div class="fld"><label class="lbl">Campagna</label><input id="op-camp" type="number" value="${new Date().getFullYear()}"></div>
+    </div>`;
+  }
+  h+=`<div class="fld"><label class="lbl">Note</label><input id="op-note"></div>`;
+  document.getElementById("op-form").innerHTML=h;
+  aggiornaPrePost();
+}
+
+function getSor(){const e=document.getElementById("op-sor");return e?VASCHE.find(v=>v.id===e.value):null;}
+function getDst(){const e=document.getElementById("op-dst");return e?VASCHE.find(v=>v.id===e.value):null;}
+function getLitri(){return parseFloat(document.getElementById("op-litri")?.value)||0;}
+
+function aggiornaPrePost(){
+  const sor=getSor(), dst=getDst(), qty=getLitri();
+
+  // hint kg live sotto il campo litri
+  const hint=document.getElementById("op-kg-hint");
+  if(hint)hint.innerHTML=qty>0
+    ? `= <b>${fmtD(L2KG(qty))} kg</b> <span style="opacity:.7;">(× ${DENSITA})</span>`
+    : "I movimenti si inseriscono in litri.";
+
+  const pre=document.getElementById("pre-panel"), post=document.getElementById("post-panel");
+  const msg=document.getElementById("op-msg"); msg.innerHTML="";
+
+  const card=(v,lit)=>v?`<div class="pp-row"><b>${v.codice}</b><span>${giacenzaInline(lit)}</span></div>
+     <div class="pp-row dim"><span>capacità</span><span>${giacenzaInline(v.capacita)}</span></div>`:"";
+
+  pre.innerHTML=(sor?card(sor,sor.litri):"")+(dst?card(dst,dst.litri):"")||`<div class="dim">—</div>`;
+
+  if(qty<=0){post.innerHTML=`<div class="dim">—</div>`;return;}
+
+  let sorPost=sor?sor.litri:0, dstPost=dst?dst.litri:0;
+  if(["travaso","colmatura","filtrazione"].includes(opTipo)){sorPost-=qty;dstPost+=qty;}
+  else if(opTipo==="carico"){dstPost+=qty;}
+  else{sorPost-=qty;}   // perdita, vendita, imbottigliamento
+  if(opTipo==="riclassifica"){sorPost=sor?sor.litri:0;}
+
+  post.innerHTML=(sor?card(sor,sorPost):"")+(dst?card(dst,dstPost):"");
+
+  // validazioni
+  if(sor && sorPost<-0.01 && opTipo!=="riclassifica")
+    msg.innerHTML=`<div class="warn">Quantità superiore alla giacenza di ${sor.codice} (${giacenzaInline(sor.litri)}).</div>`;
+  else if(dst && dst.capacita>0 && dstPost>dst.capacita+0.01)
+    msg.innerHTML=`<div class="warn">Supera la capacità di ${dst.codice} (${giacenzaInline(dst.capacita)}). Eccedenza ${giacenzaInline(dstPost-dst.capacita)}.</div>`;
+  else
+    msg.innerHTML=`<div class="ok">Movimento ${fmtL(qty)} L = ${fmtD(L2KG(qty))} kg.</div>`;
+}
+
+async function eseguiOp(){
+  const sor=getSor(), dst=getDst(), qty=getLitri();
+  const note=document.getElementById("op-note")?.value||"";
+  const qualSel=document.getElementById("op-qual")?.value||"";
+  const lotto=document.getElementById("op-lotto")?.value||"";
+  const camp=parseInt(document.getElementById("op-camp")?.value)||null;
+
+  if(opTipo!=="riclassifica" && qty<=0){alert("Inserisci la quantità in litri.");return;}
+
+  const needSor=["travaso","colmatura","filtrazione","imbottigliamento","perdita","vendita","riclassifica"].includes(opTipo);
+  const needDst=["carico","travaso","colmatura","filtrazione"].includes(opTipo);
+  if(needSor&&!sor){alert("Seleziona la vasca sorgente.");return;}
+  if(needDst&&!dst){alert("Seleziona la vasca destinazione.");return;}
+  if(sor&&opTipo!=="riclassifica"&&qty>sor.litri+0.01){alert("Quantità superiore alla giacenza.");return;}
+  if(dst&&dst.capacita>0){
+    const post=dst.litri+qty;
+    if(post>dst.capacita+0.01 && !confirm(`Supera la capacità di ${dst.codice}. Procedere?`))return;
+  }
+
+  const lottiSor=sor?JSON.parse(JSON.stringify(sor.lotti||{})):null;
+
+  // ─── applica ─────────────────────────────────────────────────────────────
+  if(opTipo==="carico"){
+    dst.litri+=qty;
+    if(qualSel)dst.qualita=qualSel;
+    if(camp)dst.campagna=camp;
+    if(lotto){dst.lotti=dst.lotti||{};dst.lotti[lotto]=(dst.lotti[lotto]||0)+qty;}
+  }
+  else if(["travaso","colmatura","filtrazione"].includes(opTipo)){
+    trasferisciLotti(sor,dst,qty);
+    riduciLotti(sor,qty);
+    sor.litri-=qty; dst.litri+=qty;
+    if(!dst.qualita&&sor.qualita)dst.qualita=sor.qualita;
+    if(!dst.campagna&&sor.campagna)dst.campagna=sor.campagna;
+    if(sor.litri<0.01){sor.litri=0;svuotaLotti(sor);sor.qualita=null;sor.campagna=null;}
+  }
+  else if(["perdita","vendita","imbottigliamento"].includes(opTipo)){
+    riduciLotti(sor,qty);
+    sor.litri-=qty;
+    if(sor.litri<0.01){sor.litri=0;svuotaLotti(sor);sor.qualita=null;sor.campagna=null;}
+  }
+  else if(opTipo==="riclassifica"){
+    if(qualSel)sor.qualita=qualSel;
+  }
+
+  const q=getQualita(qualSel||sor?.qualita||dst?.qualita);
+  const entry={ts:new Date().toISOString(),tipo:opTipo,
+    label:OPS.find(o=>o.k===opTipo).l,
+    sor:sor?sor.codice:null, dst:dst?dst.codice:null,
+    litri:opTipo==="riclassifica"?null:qty,   // ← LITRI
+    qualita:q?q.id:null, sigla:q?q.sigla:null, qualNome:q?q.nome:null,
+    campagna:camp, lotto:lotto||null, note, lottiSor};
+  logOp.unshift(entry);
+
+  closeModal("modal-op");
+  opVascaPresel=null;
+  await autoSave(entry);
+  await fetchLog();
+  renderAll(); aggiornaPannello();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  RETTIFICA INVENTARIO — si inserisce in litri, kg mostrato in tempo reale
+// ═══════════════════════════════════════════════════════════════════════════
+function openRettifica(){
+  const v=VASCHE.find(x=>x.id===selectedId);
+  if(!v)return;
+  document.getElementById("rett-body").innerHTML=`
+    <div class="pp-row"><b class="cod">${v.codice}</b><span>${v.tipo}</span></div>
+    <div class="fld" style="margin-top:10px;">
+      <label class="lbl">Giacenza attuale</label>
+      <input value="${giacenzaInline(v.litri)}" disabled>
+    </div>
+    <div class="fld">
+      <label class="lbl">Giacenza rilevata (LITRI)</label>
+      <input id="rt-litri" type="number" step="0.01" min="0" value="${v.litri}" oninput="rettPreview()">
+      <div class="dim" id="rt-kg" style="margin-top:4px;"></div>
+    </div>
+    <div id="rt-delta"></div>
+    <div class="fld"><label class="lbl">Note</label><input id="rt-note" placeholder="es. verifica inventario"></div>
+    <button class="btn btn-p" style="width:100%;" onclick="eseguiRettifica()">Conferma rettifica</button>`;
+  openModal("modal-rett");
+  rettPreview();
+}
+function rettPreview(){
+  const v=VASCHE.find(x=>x.id===selectedId); if(!v)return;
+  const nuovo=parseFloat(document.getElementById("rt-litri").value)||0;
+  const d=nuovo-v.litri;
+  document.getElementById("rt-kg").innerHTML=`= <b>${fmtD(L2KG(nuovo))} kg</b>`;
+  const el=document.getElementById("rt-delta");
+  if(Math.abs(d)<0.01){el.innerHTML=`<div class="ok">Nessuna differenza.</div>`;return;}
+  const seg=d>0?"carico":"scarico";
+  el.innerHTML=`<div class="${d>0?'ok':'warn'}">
+    Delta ${d>0?"+":""}${fmtD(d)} L  (${d>0?"+":""}${fmtD(L2KG(d))} kg) → rettifica di ${seg}.
+  </div>`;
+}
+async function eseguiRettifica(){
+  const v=VASCHE.find(x=>x.id===selectedId); if(!v)return;
+  const nuovo=parseFloat(document.getElementById("rt-litri").value)||0;
+  const note=document.getElementById("rt-note").value||"";
+  const d=nuovo-v.litri;
+  if(Math.abs(d)<0.01){closeModal("modal-rett");return;}
+  if(v.capacita>0 && nuovo>v.capacita+0.01 && !confirm("Supera la capacità. Procedere?"))return;
+
+  const lottiSor=JSON.parse(JSON.stringify(v.lotti||{}));
+  if(d>0){
+    // carico proporzionale sui lotti presenti; se vuota → lotto RETT
+    if(v.litri>0 && Object.keys(v.lotti||{}).length){
+      const f=nuovo/v.litri;
+      Object.keys(v.lotti).forEach(c=>v.lotti[c]*=f);
+    }else{
+      v.lotti={["RETT-"+new Date().getFullYear()]:nuovo};
+    }
+  }else{
+    riduciLotti(v,-d);
+  }
+  v.litri=nuovo;
+  if(v.litri<0.01){v.litri=0;svuotaLotti(v);v.qualita=null;v.campagna=null;}
+
+  const entry={ts:new Date().toISOString(),tipo:"rettifica_inventario",
+    label:"Rettifica inventario", sor:v.codice, dst:null,
+    litri:Math.abs(d),                          // ← LITRI
+    qualita:v.qualita, lotto:null,
+    note:`${d>0?"+":"-"}${fmtD(Math.abs(d))} L (${fmtD(Math.abs(L2KG(d)))} kg) — ${note}`,
+    lottiSor};
+  logOp.unshift(entry);
+  closeModal("modal-rett");
+  await autoSave(entry);
+  await fetchLog();
+  renderAll(); aggiornaPannello();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  NUOVA VASCA
+// ═══════════════════════════════════════════════════════════════════════════
+document.addEventListener("input",e=>{
+  if(e.target.id==="nv-cap"){
+    const l=parseFloat(e.target.value)||0;
+    document.getElementById("nv-kg").innerHTML=l?`Capacità = <b>${fmtD(L2KG(l))} kg</b>`:"—";
+  }
+});
+async function creaVasca(){
+  const cod=document.getElementById("nv-cod").value.trim();
+  const num=parseInt(document.getElementById("nv-num").value);
+  const tipo=document.getElementById("nv-tipo").value;
+  const cap=parseFloat(document.getElementById("nv-cap").value)||0;
+  if(!cod||!num){alert("Codice e numero obbligatori.");return;}
+  const {error}=await sb.from("frantoio_vasche").insert({
+    azienda_id:AZIENDA_ID,numero:num,codice:cod,materiale:tipo,
+    capacita_litri:cap,litri:0,lotti:{}});
+  if(error){alert(error.message);return;}
+  closeModal("modal-vasca");
+  await fetchAnagrafiche(); renderAll();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MODAL HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+function openModal(id){document.getElementById(id).classList.add("on");}
+function closeModal(id){document.getElementById(id).classList.remove("on");}
+document.querySelectorAll(".ov").forEach(o=>o.addEventListener("click",e=>{if(e.target===o)o.classList.remove("on");}));
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════════════════
+window.addEventListener("online", ()=>{updateOnline();syncronizza();});
+window.addEventListener("offline",updateOnline);
+updateOnline();
+sb.auth.getSession().then(({data:{session}})=>{ session?bootstrapUtente():showLogin(); });
+</script>
+</body>
+</html>
